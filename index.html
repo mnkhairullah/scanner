@@ -64,7 +64,7 @@ try { PIN = localStorage.getItem('pin') || ''; } catch (e) {}
 
 // Kosong = halaman ini berjalan DI DALAM Apps Script (kamera langsung diblokir Google di sana).
 // Untuk scanner kamera, hosting file ini di luar Apps Script (mis. GitHub Pages) dan isi dengan URL /exec.
-const API_URL = 'ISI_URL_EXEC_DI_SINI';
+const API_URL = 'https://script.google.com/macros/s/AKfycbznNMVAH9I8sMuFZXAXJ5YBnaN7n7EW5Wh-0F-k33BdZcGGTPw-RBA2Fd8POK8u_RnS3w/exec';
 const ACT = { apiStats: 'stats', apiCheckin: 'checkin', apiSearch: 'search', apiWalkin: 'walkin' };
 const call = (fn, ...a) => {
   if (!API_URL) return new Promise((ok, no) =>
