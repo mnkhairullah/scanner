@@ -33,7 +33,7 @@ video{width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:
   <div class="card">
     <b>Scan / input token</b>
     <div class="row"><input id="ti" placeholder="Token atau hasil scan" autocapitalize="characters" autocomplete="off"><button class="p" id="go">Check-in</button></div>
-    <div class="row"><button id="cam">📷 Scan QR</button><button id="ph">📸 Foto QR</button><button id="stop" hidden>Stop</button></div>
+    <div class="row"><button id="cam">📷 Scan QR</button><button id="ph">📸 Upload QR</button><button id="stop" hidden>Stop</button></div>
     <input id="pf" type="file" accept="image/*" capture="environment" hidden>
     <div class="mu" id="hint" style="margin-top:6px"></div>
     <video id="v" playsinline muted hidden></video>
@@ -198,19 +198,19 @@ $('#cam').onclick = async () => {
     stopCam();
     const n = (e && e.name) || '';
     if (n === 'NotAllowedError' || n === 'SecurityError') {
-      if (!API_URL) res('wn', 'Kamera diblokir oleh Google', 'Halaman Apps Script tidak boleh memakai kamera langsung. Buka scanner di alamat GitHub Pages, atau pakai "Foto QR".');
+      if (!API_URL) res('wn', 'Kamera diblokir oleh Google', 'Halaman Apps Script tidak boleh memakai kamera langsung. Buka scanner di alamat GitHub Pages, atau pakai "Upload QR".');
       else res('wn', 'Izin kamera ditolak', 'Klik ikon gembok di bilah alamat browser, izinkan kamera, lalu coba lagi.');
     } else if (n === 'NotFoundError') {
       res('wn', 'Kamera tidak ditemukan', 'Perangkat ini tidak punya kamera. Pakai scanner USB, input token, atau cari nama.');
     } else if (n === 'NotReadableError') {
       res('wn', 'Kamera sedang dipakai', 'Tutup aplikasi lain yang memakai kamera (Zoom, Meet, dll.) lalu coba lagi.');
     } else {
-      res('wn', 'Kamera tidak bisa dibuka', (n ? n + ' · ' : '') + ((e && e.message) || '') + ' Pakai "Foto QR" atau input token.');
+      res('wn', 'Kamera tidak bisa dibuka', (n ? n + ' · ' : '') + ((e && e.message) || '') + ' Pakai "Upload QR" atau input token.');
     }
   }
 };
 
-/* Foto QR: membuka kamera bawaan HP lewat input file, jadi tidak diblokir Google */
+/* Upload QR: membuka kamera bawaan HP lewat input file, jadi tidak diblokir Google */
 const loadImg = f => new Promise((ok, no) => {
   const u = URL.createObjectURL(f), i = new Image();
   i.onload = () => { URL.revokeObjectURL(u); ok(i); };
@@ -285,7 +285,7 @@ $('#wB').onclick = async () => {
 $('#pinB').onclick = () => { PIN = $('#pin').value.trim(); enter(); };
 $('#pin').onkeydown = e => { if (e.key === 'Enter') $('#pinB').click(); };
 setInterval(() => { if (!$('#app').hidden && !busy) call('apiStats').then(stat).catch(() => {}); }, 30000);
-if (!API_URL) $('#hint').textContent = 'Catatan: Google membatasi kamera langsung di halaman ini. Jika "Scan QR" gagal, pakai "Foto QR" atau kamera bawaan HP.';
+if (!API_URL) $('#hint').textContent = 'Catatan: Google membatasi kamera langsung di halaman ini. Jika "Scan QR" gagal, pakai "Upload QR" atau kamera bawaan HP.';
 if (API_URL && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL)) {
   lockScreen('Alamat server belum diatur. Isi API_URL di config.js dengan URL /exec dari Apps Script.');
 } else if (PIN) enter();
