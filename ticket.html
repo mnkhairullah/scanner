@@ -13,7 +13,7 @@ h1{font-size:28px;margin:2px 0 0;line-height:1.2}
 h2{font-size:26px;margin:10px 0 0;line-height:1.2}
 .dv{color:var(--mu);font-size:18px}
 .hint{color:var(--mu);font-size:14px;max-width:320px}
-#qr{background:#fff;padding:14px;border-radius:16px;margin:18px 0 6px;display:flex;justify-content:center}
+#qr{width:230px;border-radius:16px;overflow:hidden;margin:18px 0 6px;line-height:0}
 .tok{font-family:ui-monospace,Menlo,monospace;letter-spacing:.14em;color:var(--mu);font-size:15px}
 .tick{width:104px;height:104px;border-radius:50%;background:#fff;color:var(--ok);display:flex;align-items:center;justify-content:center;font-size:62px;font-weight:700;margin-bottom:12px}
 body.ok .dv,body.ok .hint{color:rgba(255,255,255,.92)}
@@ -24,9 +24,9 @@ button{font:inherit;color:var(--tx);background:transparent;border:1px solid var(
 .st{position:relative;overflow:hidden;aspect-ratio:var(--r);width:min(100vw,calc(100vh*var(--r)));width:min(100vw,calc(100dvh*var(--r)))}
 .st .bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .el{position:absolute;line-height:1.15;overflow-wrap:anywhere}
-#dqr{background:#fff;border-radius:calc(var(--u)*2.5);padding:calc(var(--u)*3)}
-#dqr canvas,#dqr img{width:100%;height:auto}
+#dqr{border-radius:calc(var(--u)*2.5);overflow:hidden;line-height:0}
 .grid .st::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,rgba(255,0,80,.6) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,0,80,.6) 1px,transparent 1px);background-size:10% 10%}
+#vib{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:6;max-width:92vw;padding:7px 14px;border-radius:99px;background:rgba(0,0,0,.62);color:#fff;font-size:13px;text-align:center}
 [hidden]{display:none!important}
 </style></head><body>
 
@@ -67,6 +67,7 @@ button{font:inherit;color:var(--tx);background:transparent;border:1px solid var(
   <div class="el" id="sn"></div><div class="el" id="sd"></div><div class="el" id="sw"></div>
 </div></section>
 
+<div id="vib" hidden>📳 Ketuk layar sekali agar HP bergetar saat check-in berhasil</div>
 <div id="net"></div>
 
 <script src="config.js"></script>
@@ -79,13 +80,44 @@ const DES = (window.APP && window.APP.DESIGN) || null;
 let token = '', timer = null, done = false, busy = false, qrDone = false, cur = 'load';
 const useD = k => !!(DES && DES[k] && DES[k].bg);
 
+/* Getar saat berhasil check-in. Pola bisa diatur di config.js (VIBRATE: [getar, jeda, getar, ...] dalam milidetik; false = mati).
+   Syarat browser (Chrome/Android): halaman harus pernah disentuh sekali. iPhone (Safari) tidak mengizinkan web memicu getar. */
+const VIB = (window.APP && 'VIBRATE' in window.APP) ? window.APP.VIBRATE : [300, 120, 300, 120, 600];
+const canVib = !!(VIB && navigator.vibrate);
+let armed = false;
+function arm() {
+  if (armed) return;
+  armed = true; $('#vib').hidden = true;
+  try { if (canVib) navigator.vibrate(1); } catch (e) {}
+}
+['pointerdown', 'touchstart', 'click', 'keydown'].forEach(ev => addEventListener(ev, arm, { passive: true }));
+
+/* ---------- QR: digambar sebagai SVG, tajam di ukuran berapa pun, zona tenang 4 modul sudah termasuk ---------- */
+function qrSvg(text) {
+  const q = new QRCode(document.createElement('div'), { text: text, width: 64, height: 64, correctLevel: QRCode.CorrectLevel.Q });
+  const m = q._oQRCode, n = m.getModuleCount(), z = 4;
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (m.isDark(r, c)) d += 'M' + (c + z) + ' ' + (r + z) + 'h1v1h-1z';
+  const v = n + 2 * z;
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + v + ' ' + v + '" shape-rendering="crispEdges" style="display:block;width:100%;height:auto">' +
+    '<rect width="' + v + '" height="' + v + '" fill="#fff"/><path d="' + d + '" fill="#000"/></svg>';
+}
+
 /* ---------- desain ---------- */
+const fs = n => 'calc(var(--u) * ' + n + ')';
 function place(el, c) {
+  el._c = c;
   el.style.left = c.x + '%'; el.style.top = c.y + '%';
   if (c.w) el.style.width = c.w + '%';
-  el.style.fontSize = 'calc(var(--u) * ' + (c.size || 4) + ')';
+  el.style.fontSize = fs(c.size || 4);
   el.style.fontWeight = c.weight || 700;
   el.style.color = c.color || DES.color || '#fff';
+  if (c.font) el.style.fontFamily = c.font;                                   // font khusus elemen ini
+  if (c.letterSpacing != null) el.style.letterSpacing = fs(c.letterSpacing);  // jarak antar huruf
+  if (c.uppercase) el.style.textTransform = 'uppercase';
+  if (c.italic) el.style.fontStyle = 'italic';
+  if (c.lineHeight) el.style.lineHeight = c.lineHeight;
+  if (c.shadow) el.style.textShadow = c.shadow === true ? '0 2px 12px rgba(0,0,0,.45)' : c.shadow;
   const a = c.align || 'center';
   el.style.textAlign = a;
   el.style.transform = a === 'left' ? 'translate(0,-50%)' : a === 'right' ? 'translate(-100%,-50%)' : 'translate(-50%,-50%)';
@@ -100,7 +132,20 @@ function setup(sec, key, map) {
   if (DES.letterbox) s.style.background = DES.letterbox;
   for (const id in map) { if (cfg[map[id]]) place($(id), cfg[map[id]]); else $(id).hidden = true; }
 }
-const fit = () => document.querySelectorAll('.st').forEach(st => st.style.setProperty('--u', (st.clientWidth / 100) + 'px'));
+// Ukuran otomatis: bila 'h' (tinggi kotak, % tinggi desain) diisi, huruf dikecilkan sampai teks muat (batas bawah 'min')
+function shrink(el) {
+  const c = el._c;
+  if (!c || !c.h) return;
+  const maxH = el.closest('.st').clientHeight * c.h / 100;
+  if (!maxH) return;
+  let n = c.size || 4; const lo = c.min || n * 0.5;
+  el.style.fontSize = fs(n);
+  while (el.scrollHeight > maxH + 1 && n > lo) { n = Math.max(lo, n - 0.25); el.style.fontSize = fs(n); }
+}
+const fit = () => document.querySelectorAll('.st').forEach(st => {
+  st.style.setProperty('--u', (st.clientWidth / 100) + 'px');
+  st.querySelectorAll('.el').forEach(shrink);
+});
 addEventListener('resize', fit);
 if (DES && DES.font) document.body.style.fontFamily = DES.font;
 if (DES && DES.fontUrl) { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = DES.fontUrl; document.head.appendChild(l); }
@@ -134,23 +179,28 @@ function render(r) {
     $('#n2').textContent = r.nama; $('#d2').textContent = r.divisi; $('#w2').textContent = w;
     $('#ev2').textContent = 'Selamat datang di ' + r.event;
     $('#sn').textContent = r.nama; $('#sd').textContent = r.divisi; $('#sw').textContent = w;
-    view('ok');
-    if (navigator.vibrate) navigator.vibrate([200, 80, 200]);
+    const live = cur === 'pend'; // true = tamu sedang menunggu lalu petugas men-scan
+    view('ok'); $('#vib').hidden = true;
+    if (live && canVib) { try { navigator.vibrate(VIB); } catch (e) {} }
     return;
   }
   $('#ev1').textContent = r.event; $('#n1').textContent = r.nama; $('#d1').textContent = r.divisi; $('#tk').textContent = token;
   $('#dn').textContent = r.nama; $('#dd').textContent = r.divisi; $('#dt').textContent = token;
-  if (!qrDone) { // QR dibuat di perangkat ini; dibuat untuk kedua tampilan agar cadangan polos tetap lengkap
-    new QRCode($('#qr'), { text: r.scanUrl, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
-    new QRCode($('#dqr'), { text: r.scanUrl, width: 256, height: 256, correctLevel: QRCode.CorrectLevel.M });
+  if (!qrDone) { // dibuat di perangkat ini, untuk kedua tampilan agar cadangan polos tetap lengkap
+    const svg = qrSvg(r.qr || r.scanUrl);
+    $('#qr').innerHTML = svg; $('#dqr').innerHTML = svg;
     qrDone = true;
   }
   view('pend');
+  $('#vib').hidden = !(canVib && !armed);
 }
 
+const T0 = Date.now();
+let lastMs = 0;
 function next() {
   clearTimeout(timer);
-  if (!done) timer = setTimeout(tick, 5000 + Math.random() * 2000); // jeda acak agar tidak serentak
+  // cepat (±2,5 dtk) saat tiket baru dibuka di pintu masuk, hemat (±6 dtk) setelah 5 menit, dan melambat sendiri bila server lambat
+  if (!done) timer = setTimeout(tick, Math.min(12000, Math.max(Date.now() - T0 < 300000 ? 2500 : 6000, lastMs * 3)) + Math.random() * 600);
 }
 
 async function tick() {
@@ -158,13 +208,20 @@ async function tick() {
   if (document.hidden) { next(); return; }   // hemat kuota saat layar mati / tab di belakang
   if (busy) return;
   busy = true;
-  try { render(await ask()); if (!/desain/.test($('#net').textContent)) $('#net').textContent = ''; }
+  const t1 = Date.now();
+  try { render(await ask()); lastMs = Date.now() - t1; if (!/desain/.test($('#net').textContent)) $('#net').textContent = ''; }
   catch (e) { $('#net').textContent = 'Koneksi bermasalah, mencoba lagi…'; }
   finally { busy = false; next(); }
 }
 
 $('#rf').onclick = () => { clearTimeout(timer); tick(); };
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !done) { clearTimeout(timer); tick(); } });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden || done) return;
+  clearTimeout(timer); tick();
+  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+});
+addEventListener('focus', () => { if (!done) { clearTimeout(timer); tick(); } });
+addEventListener('pageshow', e => { if (e.persisted && !done) { clearTimeout(timer); tick(); } });
 try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
 
 /* ---------- mulai ---------- */
@@ -173,7 +230,7 @@ if (demo) {
   if (P.get('grid')) document.documentElement.classList.add('grid');
   token = 'DEMO2345'; done = true;
   render({ found: true, nama: P.get('nama') || 'Budi Santoso', divisi: P.get('divisi') || 'PT Maju Jaya',
-    hadir: demo === 'ok', waktu: '09:41', event: 'Nama Acara', scanUrl: 'https://contoh.id/?t=DEMO2345' });
+    hadir: demo === 'ok', waktu: '09:41', event: 'Nama Acara', qr: 'DEMO2345' });
 } else if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL)) {
   view('err'); $('#net').textContent = 'Alamat server belum diatur (config.js).';
 } else {
