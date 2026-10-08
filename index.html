@@ -190,7 +190,7 @@ async function check(raw) {
   try {
     const r = await call('apiCheckin', raw);
     stat(r.stats);
-    if (r.status === 'ok') res('ok', '✓ Check-in berhasil', r.nama + (r.divisi ? ' · ' + r.divisi : ''));
+    if (r.status === 'ok') res('ok', '✓ Check-in berhasil', r.nama + (r.divisi ? ' · ' + r.divisi : '', ' · pukul ' + r.waktu));
     else if (r.status === 'dup') res('wn', '⚠ Sudah check-in', r.nama + ' · pukul ' + r.waktu);
     else res('er', '✗ Tiket tidak ditemukan', r.token || '');
   } catch (e) { handleErr(e); }
