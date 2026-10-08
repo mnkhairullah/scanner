@@ -12,7 +12,7 @@
 //      .../ticket.html?demo=ok       (tampilan berhasil check-in)
 // ============================================================
 window.APP = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbznNMVAH9I8sMuFZXAXJ5YBnaN7n7EW5Wh-0F-k33BdZcGGTPw-RBA2Fd8POK8u_RnS3w/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbxgeoQMZzuhvBYeS4pcfnEX15s4pMLFN-QeXy3NcMQjUXO0ZakmOWjOByNd46WbhVxTSg/exec',
 
   DESIGN: {
     width: 1080, height: 1920,        // ukuran desain Anda (piksel); yang dipakai hanya perbandingannya
