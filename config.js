@@ -23,7 +23,7 @@ window.APP = {
 
     // Halaman tiket (sebelum check-in): ada QR untuk dipindai petugas
     ticket: {
-      bg: '',                         // contoh: 'tiket-bg.png'
+      bg: 'tiket-bg.png',                         // contoh: 'tiket-bg.png'
       nama:   { x: 50, y: 34, w: 84, size: 7 },
       divisi: { x: 50, y: 41, w: 84, size: 4.5, weight: 500 },
       qr:     { x: 50, y: 66, w: 52 },
