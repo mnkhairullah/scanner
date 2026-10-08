@@ -22,6 +22,8 @@ video{width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:
 [hidden]{display:none!important}
 #out{padding:6px 12px;font-size:14px}.hr{display:flex;align-items:center;gap:10px}
 #rem{width:auto;padding:0}
+.hi{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--bd);font-size:14px}.hi:last-child{border:0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:var(--mu)}.dot.ok{background:var(--ok)}.dot.wn{background:var(--wn)}.dot.er{background:var(--er)}
 </style></head><body><div class="w">
 <header><h1 id="ev">Check-in</h1><div class="hr"><div id="stat"></div><button id="out" hidden>Keluar</button></div></header>
 
@@ -38,13 +40,14 @@ video{width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:
   <div class="card">
     <b>Scan / input token</b>
     <div class="row"><input id="ti" placeholder="Token atau hasil scan" autocapitalize="characters" autocomplete="off"><button class="p" id="go">Check-in</button></div>
-    <div class="row"><button id="cam">📷 Scan QR</button><button id="ph">📸 Upload QR</button><button id="stop" hidden>Stop</button></div>
-    <input id="pf" type="file" accept="image/*" capture="environment" hidden>
+    <div class="row"><button id="cam">📷 Scan QR</button><button id="stop" hidden>Stop</button></div>
     <div class="mu" id="hint" style="margin-top:6px"></div>
     <video id="v" playsinline muted hidden></video>
   </div>
 
   <div id="res" hidden></div>
+
+  <div class="card" id="histCard" hidden><b>Riwayat scan</b><div id="hist"></div></div>
 
   <div class="card">
     <b>Cari nama (tamu lupa QR)</b>
@@ -167,19 +170,27 @@ async function enter(fromStore) {
   }
 }
 
-/* Anti-ulang. Dulu kamera membaca QR yang sama lagi tiap 2,5 detik, lalu hasil "berhasil" tertimpa
-   "Sudah check-in". Sekarang QR yang masih terlihat di kamera tidak diproses ulang, dan QR tamu
-   berikutnya langsung diproses tanpa menunggu tamu sebelumnya selesai. */
-const seen = new Map(), inflight = new Set();
+/* Anti-ulang & paralel. Dulu scanner menunggu jawaban server sebelum boleh membaca QR berikutnya.
+   Sekarang tiap token diproses sendiri: QR yang masih terlihat di kamera tidak dikirim ulang,
+   dan QR tamu berikutnya langsung diproses walau tamu sebelumnya belum selesai. */
+const seen = new Map(), inflight = new Set(), hist = [];
 const tokenOf = raw => {
-  const s = String(raw || '').trim(), m = s.match(/[?&][tg]=([A-Za-z0-9]+)/);
-  return (m ? m[1] : s).toUpperCase();
+  const t = String(raw || '').trim(), m = t.match(/[?&][tg]=([A-Za-z0-9]+)/);
+  return (m ? m[1] : t).toUpperCase().slice(0, 40);
 };
+function addHist(cls, text) {
+  hist.unshift({ cls, text, t: new Date() });
+  if (hist.length > 6) hist.pop();
+  $('#histCard').hidden = false;
+  $('#hist').innerHTML = hist.map(h => '<div class="hi"><span><i class="dot ' + h.cls + '"></i>' + esc(h.text) + '</span><span class="mu">' +
+    h.t.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '</span></div>').join('');
+}
 function onDetect(raw) { // dipanggil dari kamera
   const k = tokenOf(raw), now = Date.now(), t0 = seen.get(k);
   seen.set(k, now); // jendela bergeser: selama QR masih terlihat, tidak diproses ulang
   if (seen.size > 300) for (const [x, t] of seen) if (now - t > 60000) seen.delete(x);
   if (t0 && now - t0 < 8000) return;
+  if (navigator.vibrate) navigator.vibrate(25); // tanda singkat "terbaca" di HP petugas
   check(raw);
 }
 async function check(raw) {
@@ -190,9 +201,9 @@ async function check(raw) {
   try {
     const r = await call('apiCheckin', raw);
     stat(r.stats);
-    if (r.status === 'ok') res('ok', '✓ Check-in berhasil', r.nama + (r.divisi ? ' · ' + r.divisi : '', ' · pukul ' + r.waktu));
-    else if (r.status === 'dup') res('wn', '⚠ Sudah check-in', r.nama + ' · pukul ' + r.waktu);
-    else res('er', '✗ Tiket tidak ditemukan', r.token || '');
+    if (r.status === 'ok') { res('ok', '✓ Check-in berhasil', r.nama + (r.divisi ? ' · ' + r.divisi : '')); addHist('ok', r.nama + (r.divisi ? ' · ' + r.divisi : '')); }
+    else if (r.status === 'dup') { res('wn', '⚠ Sudah check-in', r.nama + ' · pukul ' + r.waktu); addHist('wn', r.nama + ' · sudah check-in ' + r.waktu); }
+    else { res('er', '✗ Tiket tidak ditemukan', r.token || ''); addHist('er', 'Tidak ditemukan: ' + (r.token || '?')); }
   } catch (e) { handleErr(e); }
   finally { inflight.delete(key); focusTi(); }
 }
@@ -241,7 +252,8 @@ function decodeFrame(v, n) { // jsQR: 3 dari 4 frame hanya area tengah (kecil = 
 
 $('#cam').onclick = async () => {
   if (stream) return;
-  if (!(await ensureJsQR())) { res(...NO_LIB); return; }
+  let det = await makeDetector();
+  if (!det && !(await ensureJsQR())) { res(...NO_LIB); return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
@@ -249,7 +261,6 @@ $('#cam').onclick = async () => {
     });
     const v = $('#v'); v.srcObject = stream; v.hidden = false; $('#stop').hidden = false;
     await v.play();
-    let det = await makeDetector();
     try { // fokus otomatis terus-menerus (bila didukung perangkat) agar QR cepat tajam
       const tr = stream.getVideoTracks && stream.getVideoTracks()[0], cp = tr && tr.getCapabilities && tr.getCapabilities();
       if (cp && cp.focusMode && cp.focusMode.indexOf('continuous') > -1) await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
@@ -265,7 +276,7 @@ $('#cam').onclick = async () => {
           if (det) { const r = await det.detect(v); if (r.length) raw = r[0].rawValue; }
           else raw = decodeFrame(v, n++);
           if (raw) onDetect(raw);
-        } catch (err) { det = null; /* pembaca bawaan gagal: lanjut dengan jsQR; satu frame gagal tidak menghentikan scanner */ }
+        } catch (err) { if (det) { det = null; ensureJsQR(); } /* pembaca bawaan gagal: lanjut dengan jsQR; satu frame gagal tidak menghentikan scanner */ }
         working = false;
       }
       nextFrame(loop);
@@ -275,49 +286,16 @@ $('#cam').onclick = async () => {
     stopCam();
     const n = (e && e.name) || '';
     if (n === 'NotAllowedError' || n === 'SecurityError') {
-      if (!API_URL) res('wn', 'Kamera diblokir oleh Google', 'Halaman Apps Script tidak boleh memakai kamera langsung. Buka scanner di alamat GitHub Pages, atau pakai "Upload QR".');
+      if (!API_URL) res('wn', 'Kamera diblokir oleh Google', 'Halaman Apps Script tidak boleh memakai kamera langsung. Buka scanner di alamat GitHub Pages, atau pakai input token.');
       else res('wn', 'Izin kamera ditolak', 'Klik ikon gembok di bilah alamat browser, izinkan kamera, lalu coba lagi.');
     } else if (n === 'NotFoundError') {
       res('wn', 'Kamera tidak ditemukan', 'Perangkat ini tidak punya kamera. Pakai scanner USB, input token, atau cari nama.');
     } else if (n === 'NotReadableError') {
       res('wn', 'Kamera sedang dipakai', 'Tutup aplikasi lain yang memakai kamera (Zoom, Meet, dll.) lalu coba lagi.');
     } else {
-      res('wn', 'Kamera tidak bisa dibuka', (n ? n + ' · ' : '') + ((e && e.message) || '') + ' Pakai "Upload QR" atau input token.');
+      res('wn', 'Kamera tidak bisa dibuka', (n ? n + ' · ' : '') + ((e && e.message) || '') + ' Pakai input token atau cari nama.');
     }
   }
-};
-
-/* Upload QR: membuka kamera bawaan HP lewat input file, jadi tidak diblokir Google */
-const loadImg = f => new Promise((ok, no) => {
-  const u = URL.createObjectURL(f), i = new Image();
-  i.onload = () => { URL.revokeObjectURL(u); ok(i); };
-  i.onerror = () => no(new Error('Foto tidak bisa dibuka'));
-  i.src = u;
-});
-function decode(img) {
-  for (const m of [1280, 640]) { // percobaan ke-2 diperkecil: membantu bila layar tamu berpola moire
-    const k = Math.min(1, m / Math.max(img.naturalWidth, img.naturalHeight));
-    const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
-    const c = document.createElement('canvas'); c.width = w; c.height = h;
-    const x = c.getContext('2d', { willReadFrequently: true });
-    x.drawImage(img, 0, 0, w, h);
-    const r = jsQR(x.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
-    if (r && r.data) return r.data;
-  }
-  return null;
-}
-$('#ph').onclick = () => $('#pf').click();
-$('#pf').onchange = async e => {
-  const f = e.target.files && e.target.files[0];
-  e.target.value = '';
-  if (!f) return;
-  res('wt', 'Membaca QR…');
-  try {
-    if (!(await ensureJsQR())) { res(...NO_LIB); return; }
-    const d = decode(await loadImg(f));
-    if (d) check(d);
-    else res('wn', 'QR tidak terbaca', 'Ulangi foto: dekatkan, pastikan seluruh QR masuk bingkai, dan layar tamu tidak silau.');
-  } catch (err) { res('er', 'Gagal membaca foto', msg(err)); }
 };
 
 /* Input manual */
@@ -371,8 +349,8 @@ $('#out').onclick = () => { // keluar: hapus PIN, kosongkan layar
   lockScreen('');
 };
 $('#pin').onkeydown = e => { if (e.key === 'Enter') $('#pinB').click(); };
-setInterval(() => { if (!$('#app').hidden && !busy) call('apiStats').then(stat).catch(e => { if (/PIN/.test(msg(e))) { clearPin(); lockScreen('Sesi berakhir. Masukkan PIN kembali.'); } }); }, 30000);
-if (!API_URL) $('#hint').textContent = 'Catatan: Google membatasi kamera langsung di halaman ini. Jika "Scan QR" gagal, pakai "Upload QR" atau kamera bawaan HP.';
+setInterval(() => { if (!$('#app').hidden && !busy && !inflight.size) call('apiStats').then(stat).catch(e => { if (/PIN/.test(msg(e))) { clearPin(); lockScreen('Sesi berakhir. Masukkan PIN kembali.'); } }); }, 30000);
+if (!API_URL) $('#hint').textContent = 'Catatan: Google membatasi kamera langsung di halaman ini. Jika "Scan QR" gagal, pakai kamera bawaan HP atau input token.';
 if (API_URL && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL)) {
   lockScreen('Alamat server belum diatur. Isi API_URL di config.js dengan URL /exec dari Apps Script.');
 } else if (PIN) {
