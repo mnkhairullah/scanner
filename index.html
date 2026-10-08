@@ -167,9 +167,25 @@ async function enter(fromStore) {
   }
 }
 
+/* Anti-ulang. Dulu kamera membaca QR yang sama lagi tiap 2,5 detik, lalu hasil "berhasil" tertimpa
+   "Sudah check-in". Sekarang QR yang masih terlihat di kamera tidak diproses ulang, dan QR tamu
+   berikutnya langsung diproses tanpa menunggu tamu sebelumnya selesai. */
+const seen = new Map(), inflight = new Set();
+const tokenOf = raw => {
+  const s = String(raw || '').trim(), m = s.match(/[?&][tg]=([A-Za-z0-9]+)/);
+  return (m ? m[1] : s).toUpperCase();
+};
+function onDetect(raw) { // dipanggil dari kamera
+  const k = tokenOf(raw), now = Date.now(), t0 = seen.get(k);
+  seen.set(k, now); // jendela bergeser: selama QR masih terlihat, tidak diproses ulang
+  if (seen.size > 300) for (const [x, t] of seen) if (now - t > 60000) seen.delete(x);
+  if (t0 && now - t0 < 8000) return;
+  check(raw);
+}
 async function check(raw) {
-  if (busy) return;
-  busy = true;
+  const key = tokenOf(raw);
+  if (inflight.has(key)) return;
+  inflight.add(key);
   res('wt', 'Memeriksa…');
   try {
     const r = await call('apiCheckin', raw);
@@ -178,7 +194,7 @@ async function check(raw) {
     else if (r.status === 'dup') res('wn', '⚠ Sudah check-in', r.nama + ' · pukul ' + r.waktu);
     else res('er', '✗ Tiket tidak ditemukan', r.token || '');
   } catch (e) { handleErr(e); }
-  finally { busy = false; focusTi(); }
+  finally { inflight.delete(key); focusTi(); }
 }
 
 /* Kamera */
@@ -202,30 +218,57 @@ function ensureJsQR() {
 }
 const NO_LIB = ['er', 'Pembaca QR gagal dimuat', 'Periksa koneksi internet, lalu muat ulang halaman ini.'];
 
+/* Pembaca QR. BarcodeDetector (bawaan browser, jauh lebih cepat) dipakai bila ada; jika tidak, jsQR. */
+async function makeDetector() {
+  try {
+    if (!('BarcodeDetector' in window)) return null;
+    const f = await BarcodeDetector.getSupportedFormats();
+    return f.indexOf('qr_code') > -1 ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+  } catch (e) { return null; }
+}
+let _cv = null, _cx = null;
+function decodeFrame(v, n) { // jsQR: 3 dari 4 frame hanya area tengah (kecil = cepat), tiap frame ke-4 seluruh bingkai
+  const vw = v.videoWidth, vh = v.videoHeight, full = n % 4 === 3;
+  let sx = 0, sy = 0, sw = vw, sh = vh, ow, oh;
+  if (full) { const k = Math.min(1, 720 / vw); ow = Math.round(vw * k); oh = Math.round(vh * k); }
+  else { const q = Math.round(Math.min(vw, vh) * 0.8); sx = Math.round((vw - q) / 2); sy = Math.round((vh - q) / 2); sw = sh = q; ow = oh = Math.min(480, q); }
+  if (!_cv) { _cv = document.createElement('canvas'); _cx = _cv.getContext('2d', { willReadFrequently: true }); }
+  _cv.width = ow; _cv.height = oh;
+  _cx.drawImage(v, sx, sy, sw, sh, 0, 0, ow, oh);
+  const r = jsQR(_cx.getImageData(0, 0, ow, oh).data, ow, oh, { inversionAttempts: 'dontInvert' });
+  return r && r.data ? r.data : null;
+}
+
 $('#cam').onclick = async () => {
   if (stream) return;
   if (!(await ensureJsQR())) { res(...NO_LIB); return; }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
       audio: false
     });
     const v = $('#v'); v.srcObject = stream; v.hidden = false; $('#stop').hidden = false;
     await v.play();
-    const c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true });
-    const loop = () => {
+    let det = await makeDetector();
+    try { // fokus otomatis terus-menerus (bila didukung perangkat) agar QR cepat tajam
+      const tr = stream.getVideoTracks && stream.getVideoTracks()[0], cp = tr && tr.getCapabilities && tr.getCapabilities();
+      if (cp && cp.focusMode && cp.focusMode.indexOf('continuous') > -1) await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch (err) {}
+    let n = 0, working = false;
+    const nextFrame = f => (v.requestVideoFrameCallback ? v.requestVideoFrameCallback(f) : requestAnimationFrame(f));
+    const loop = async () => {
       if (!stream) return;
-      try {
-        if (v.videoWidth && Date.now() > cool && !busy) {
-          const k = Math.min(1, 800 / v.videoWidth);
-          c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
-          x.drawImage(v, 0, 0, c.width, c.height);
-          const r = jsQR(x.getImageData(0, 0, c.width, c.height).data, c.width, c.height,
-            { inversionAttempts: 'dontInvert' });
-          if (r && r.data) { cool = Date.now() + 2500; check(r.data); }
-        }
-      } catch (err) { /* satu frame gagal dibaca tidak boleh menghentikan scanner */ }
-      requestAnimationFrame(loop);
+      if (!working && v.videoWidth) {
+        working = true;
+        try {
+          let raw = null;
+          if (det) { const r = await det.detect(v); if (r.length) raw = r[0].rawValue; }
+          else raw = decodeFrame(v, n++);
+          if (raw) onDetect(raw);
+        } catch (err) { det = null; /* pembaca bawaan gagal: lanjut dengan jsQR; satu frame gagal tidak menghentikan scanner */ }
+        working = false;
+      }
+      nextFrame(loop);
     };
     loop();
   } catch (e) {
