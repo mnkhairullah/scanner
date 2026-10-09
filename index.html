@@ -39,7 +39,7 @@ video{width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:
 <main id="app" hidden>
   <div class="card">
     <b>Scan / input token</b>
-    <div class="row"><input id="ti" placeholder="Token atau hasil scan" autocapitalize="characters" autocomplete="off"><button class="p" id="go">Check-in</button></div>
+    <div class="row"><input id="ti" placeholder="Token" autocapitalize="characters" autocomplete="off"><button class="p" id="go">Check-in</button></div>
     <div class="row"><button id="cam">📷 Scan QR</button><button id="stop" hidden>Stop</button></div>
     <div class="mu" id="hint" style="margin-top:6px"></div>
     <video id="v" playsinline muted hidden></video>
@@ -50,15 +50,15 @@ video{width:100%;max-height:280px;border-radius:12px;background:#000;margin-top:
   <div class="card" id="histCard" hidden><b>Riwayat scan</b><div id="hist"></div></div>
 
   <div class="card">
-    <b>Cari nama (tamu lupa QR)</b>
+    <b>Cari Nama Tamu</b>
     <div class="row"><input id="q" placeholder="Ketik minimal 2 huruf" autocomplete="off"></div>
     <div id="list"></div>
   </div>
 
   <div class="card">
     <b>Tamu on the spot</b>
-    <div class="row"><input id="wn" placeholder="Nama *" autocomplete="off"></div>
-    <div class="row"><input id="wd" placeholder="Divisi" autocomplete="off"><input id="we" type="email" placeholder="Email (opsional)" autocomplete="off"></div>
+    <div class="row"><input id="wn" placeholder="Nama" autocomplete="off"></div>
+    <div class="row"><input id="wd" placeholder="Asal Departemen/Perusahaan" autocomplete="off"><input id="we" type="email" placeholder="Email (opsional)" autocomplete="off"></div>
     <div class="row"><button class="p" id="wB">Daftarkan &amp; check-in</button></div>
   </div>
 </main>
