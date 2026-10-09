@@ -27,6 +27,12 @@ button{font:inherit;color:var(--tx);background:transparent;border:1px solid var(
 #dqr{border-radius:calc(var(--u)*2.5);overflow:hidden;line-height:0}
 .grid .st::after{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(to right,rgba(255,0,80,.6) 1px,transparent 1px),linear-gradient(to bottom,rgba(255,0,80,.6) 1px,transparent 1px);background-size:10% 10%}
 #vib{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:6;max-width:92vw;padding:7px 14px;border-radius:99px;background:rgba(0,0,0,.62);color:#fff;font-size:13px;text-align:center}
+@keyframes fl{0%{opacity:0}25%{opacity:.85}100%{opacity:0}}
+#flash{position:fixed;inset:0;background:#fff;pointer-events:none;opacity:0;z-index:30}
+#flash.go{animation:fl .7s ease-out}
+#gate{position:fixed;inset:0;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center;background:var(--bg);color:var(--tx)}
+#gate b{font-size:22px;line-height:1.3}
+#gate button{font-size:18px;padding:14px 28px;border-radius:14px;background:#2563eb;border-color:#2563eb;color:#fff;margin-top:14px}
 [hidden]{display:none!important}
 </style></head><body>
 
@@ -67,7 +73,15 @@ button{font:inherit;color:var(--tx);background:transparent;border:1px solid var(
   <div class="el" id="sn"></div><div class="el" id="sd"></div><div class="el" id="sw"></div>
 </div></section>
 
-<div id="vib" hidden>📳 Ketuk layar sekali agar HP bergetar saat check-in berhasil</div>
+<section id="gate" hidden>
+  <div class="ev" id="gev"></div>
+  <b id="gn"></b>
+  <div class="hint" id="gt"></div>
+  <button id="gb">Tampilkan Tiket</button>
+</section>
+
+<div id="vib" hidden></div>
+<div id="flash"></div>
 <div id="net"></div>
 
 <script src="config.js"></script>
@@ -81,16 +95,55 @@ let token = '', timer = null, done = false, busy = false, qrDone = false, cur = 
 const useD = k => !!(DES && DES[k] && DES[k].bg);
 
 /* Getar saat berhasil check-in. Pola bisa diatur di config.js (VIBRATE: [getar, jeda, getar, ...] dalam milidetik; false = mati).
-   Syarat browser (Chrome/Android): halaman harus pernah disentuh sekali. iPhone (Safari) tidak mengizinkan web memicu getar. */
+   ATURAN BROWSER (tidak bisa dilewati lewat kode): Chrome/Android memblokir getar sampai layar disentuh (diketuk) sekali.
+   Karena itu "armed" hanya dianggap aktif bila browser benar-benar mencatat sentuhan (navigator.userActivation),
+   bukan sekadar ada event sentuh (gesekan/scroll TIDAK dihitung).
+   GATE di config.js: true = layar awal "Tampilkan Tiket" (satu ketukan wajib) => getar dijamin di Android.
+   iPhone (Safari) tidak mengizinkan web memicu getar sama sekali: di sana dipakai kilatan layar + bunyi singkat.
+   SOUND di config.js: 'auto' (bawaan: bunyi hanya bila HP tidak bisa bergetar) | true | false. */
 const VIB = (window.APP && 'VIBRATE' in window.APP) ? window.APP.VIBRATE : [300, 120, 300, 120, 600];
+const SND = (window.APP && 'SOUND' in window.APP) ? window.APP.SOUND : 'auto';
+const GATE = !!(window.APP && window.APP.GATE);
 const canVib = !!(VIB && navigator.vibrate);
-let armed = false;
-function arm() {
-  if (armed) return;
-  armed = true; $('#vib').hidden = true;
-  try { if (canVib) navigator.vibrate(1); } catch (e) {}
+const useSound = SND === true || (SND === 'auto' && !canVib);
+let armed = false, actx = null, wl = null;
+const TITLE0 = document.title;
+function wake() { // layar tetap menyala selama menunggu (layar mati = getar & pengecekan terhenti)
+  try { if (navigator.wakeLock && !done && !document.hidden) navigator.wakeLock.request('screen').then(x => { wl = x; }).catch(() => {}); } catch (e) {}
 }
-['pointerdown', 'touchstart', 'click', 'keydown'].forEach(ev => addEventListener(ev, arm, { passive: true }));
+function hint() {
+  const h = $('#vib'), show = !armed && !done && !GATE && (canVib || useSound);
+  h.hidden = !show;
+  if (show) h.textContent = canVib ? '📳 Ketuk layar agar HP bergetar saat check-in berhasil' : '🔔 Ketuk layar agar HP berbunyi saat check-in berhasil';
+}
+function arm() { // dipanggil pada sentuhan; hanya jadi "aktif" bila browser sudah mencatatnya
+  if (armed) return;
+  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+  armed = true; $('#gate').hidden = true; hint();
+  try { if (canVib) navigator.vibrate(1); } catch (e) {}
+  try { const AC = window.AudioContext || window.webkitAudioContext; if (AC && useSound) { actx = new AC(); if (actx.resume) actx.resume(); } } catch (e) {}
+  wake();
+}
+// hanya event yang BENAR-BENAR dihitung browser sebagai sentuhan pengguna (touchstart/pointerdown tidak cukup)
+['pointerup', 'touchend', 'mousedown', 'click', 'keydown'].forEach(ev => addEventListener(ev, arm, { passive: true }));
+function chime() {
+  if (!actx || !useSound) return;
+  try {
+    const t = actx.currentTime;
+    [880, 1320].forEach((f, i) => {
+      const o = actx.createOscillator(), g = actx.createGain(), a = t + i * 0.15;
+      o.frequency.value = f; o.connect(g); g.connect(actx.destination);
+      g.gain.setValueAtTime(0.0001, a); g.gain.exponentialRampToValueAtTime(0.25, a + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, a + 0.17);
+      o.start(a); o.stop(a + 0.2);
+    });
+  } catch (e) {}
+}
+function celebrate() { // dipanggil SEKALI, tepat saat status berubah dari "menunggu" menjadi "berhasil"
+  try { if (canVib) navigator.vibrate(VIB); } catch (e) {}
+  chime();
+  document.title = '✓ Berhasil check-in';
+  const f = $('#flash'); f.classList.remove('go'); void f.offsetWidth; f.classList.add('go');
+}
 
 /* ---------- QR: digambar sebagai SVG, tajam di ukuran berapa pun, zona tenang 4 modul sudah termasuk ---------- */
 function qrSvg(text) {
@@ -180,8 +233,9 @@ function render(r) {
     $('#ev2').textContent = 'Selamat datang di ' + r.event;
     $('#sn').textContent = r.nama; $('#sd').textContent = r.divisi; $('#sw').textContent = w;
     const live = cur === 'pend'; // true = tamu sedang menunggu lalu petugas men-scan
-    view('ok'); $('#vib').hidden = true;
-    if (live && canVib) { try { navigator.vibrate(VIB); } catch (e) {} }
+    view('ok'); $('#gate').hidden = true; hint();
+    if (live) celebrate();
+    try { if (wl) wl.release(); } catch (e) {}
     return;
   }
   $('#ev1').textContent = r.event; $('#n1').textContent = r.nama; $('#d1').textContent = r.divisi; $('#tk').textContent = token;
@@ -192,7 +246,12 @@ function render(r) {
     qrDone = true;
   }
   view('pend');
-  $('#vib').hidden = !(canVib && !armed);
+  if (GATE && !armed && (canVib || useSound)) { // satu ketukan wajib supaya getar dijamin
+    $('#gev').textContent = r.event || ''; $('#gn').textContent = r.nama;
+    $('#gt').textContent = canVib ? 'Ketuk sekali agar HP bergetar saat check-in berhasil.' : 'Ketuk sekali agar HP berbunyi saat check-in berhasil.';
+    $('#gate').hidden = false;
+  }
+  hint();
 }
 
 const T0 = Date.now();
@@ -217,20 +276,22 @@ async function tick() {
 $('#rf').onclick = () => { clearTimeout(timer); tick(); };
 document.addEventListener('visibilitychange', () => {
   if (document.hidden || done) return;
-  clearTimeout(timer); tick();
-  try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  clearTimeout(timer); tick(); wake();
 });
 addEventListener('focus', () => { if (!done) { clearTimeout(timer); tick(); } });
 addEventListener('pageshow', e => { if (e.persisted && !done) { clearTimeout(timer); tick(); } });
-try { if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+wake();
 
 /* ---------- mulai ---------- */
 const demo = P.get('demo'); // pratinjau desain tanpa token: ?demo=pend atau ?demo=ok (tambah &grid=1 untuk garis bantu 10%)
 if (demo) {
   if (P.get('grid')) document.documentElement.classList.add('grid');
   token = 'DEMO2345'; done = true;
-  render({ found: true, nama: P.get('nama') || 'Budi Santoso', divisi: P.get('divisi') || 'PT Maju Jaya',
-    hadir: demo === 'ok', waktu: '09:41', event: 'Nama Acara', qr: 'DEMO2345' });
+  const demoData = { found: true, nama: P.get('nama') || 'Budi Santoso', divisi: P.get('divisi') || 'PT Maju Jaya',
+    hadir: demo === 'ok', waktu: '09:41', event: 'Nama Acara', qr: 'DEMO2345' };
+  render(demoData);
+  // ?demo=pend&sim=1 : 5 detik kemudian layar berubah ke "berhasil" persis seperti saat petugas men-scan (untuk menguji getar di HP)
+  if (demo === 'pend' && P.get('sim')) setTimeout(() => render({ ...demoData, hadir: true }), 5000);
 } else if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(API_URL)) {
   view('err'); $('#net').textContent = 'Alamat server belum diatur (config.js).';
 } else {
