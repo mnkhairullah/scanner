@@ -101,7 +101,7 @@ const useD = k => !!(DES && DES[k] && DES[k].bg);
    GATE di config.js: true = layar awal "Tampilkan Tiket" (satu ketukan wajib) => getar dijamin di Android.
    iPhone (Safari) tidak mengizinkan web memicu getar sama sekali: di sana dipakai kilatan layar + bunyi singkat.
    SOUND di config.js: 'auto' (bawaan: bunyi hanya bila HP tidak bisa bergetar) | true | false. */
-const VIB = (window.APP && 'VIBRATE' in window.APP) ? window.APP.VIBRATE : [300, 120, 300, 120, 600];
+const VIB = (window.APP && 'VIBRATE' in window.APP) ? window.APP.VIBRATE : [200, 120, 200];
 const SND = (window.APP && 'SOUND' in window.APP) ? window.APP.SOUND : 'auto';
 const GATE = !!(window.APP && window.APP.GATE);
 const canVib = !!(VIB && navigator.vibrate);
